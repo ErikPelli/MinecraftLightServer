@@ -1,10 +1,9 @@
-package minecraft
+package MinecraftLightServer
 
 import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
-	"io"
 	"math/rand"
 	"net"
 	"time"
@@ -29,11 +28,10 @@ func (s *Server) listen(port string) error {
 }
 
 func(s *Server) newPlayer(p net.Conn) {
-	current := player{connection: p}
+	current := Player{connection: p}
 	handshakeState, err := current.readHandshake()
 	if err != nil {
-		_ = current.connection.Close()
-		panic(err)
+		current.panicAndCloseConnection(err)
 	}
 
 	// https://wiki.vg/Server_List_Ping
@@ -56,13 +54,13 @@ func(s *Server) newPlayer(p net.Conn) {
 		ping := current.getNextPacket()
 		var pingPayload Long
 		if _, err := pingPayload.ReadFrom(ping); err != nil {
-			panic(err)
+			current.panicAndCloseConnection(err)
 		}
 
 		// Pong
-		pong := NewPacket(0x01, []io.WriterTo{pingPayload})
+		pong := NewPacket(handshakePong, []PacketFieldWrite{pingPayload})
 		if err := pong.Pack(current.connection); err != nil {
-			panic(err)
+			current.panicAndCloseConnection(err)
 		}
 
 		return
@@ -76,35 +74,37 @@ func(s *Server) newPlayer(p net.Conn) {
 
 		// Login success
 		if loginStart.ID == handshakePacketID {
-			success := NewPacket(0x02, []io.WriterTo{current.id, username})
+			success := NewPacket(handshakeLoginSuccess, []PacketFieldWrite{current.id, username})
 			if err := success.Pack(current.connection); err != nil {
 				panic(err)
 			}
 
-			// Save current player in players sync map
-			s.players.Store(current.id, current)
+			// Save current Player in players sync map
+			s.players.Store(current.id, &current)
 		} else {
-			_ = current.connection.Close()
-			panic(errors.New("invalid login packet id"))
+			current.panicAndCloseConnection(errors.New("invalid login packet id"))
 		}
 	}
 
-	// Set player parameters and allow him to join the game
+	// Set Player parameters and allow him to join the game
 
 	// Keep Alive goroutine
-	go func() {
-		for {
-			// Keep Alive packet with random int
-			keepAlive := NewPacket(keepAlivePacketID, []io.WriterTo{Long(rand.Int63())})
+	go s.keepAliveUser(&current)
+}
 
-			// if there is a connection error remove client from players map
-			if err := keepAlive.Pack(current.connection); err != nil {
-				s.players.Delete(current.id)
-				return
-			}
+func (s *Server) keepAliveUser(current *Player) {
+	for {
+		// Keep Alive packet with random int
+		random := Long(rand.Int63())
+		keepAlive := NewPacket(keepAlivePacketID, []PacketFieldWrite{random})
 
-			// send keep alive every 20 seconds
-			time.Sleep(time.Second * 20)
+		// if there is a connection error remove client from players map
+		if err := keepAlive.Pack(current.connection); err != nil {
+			s.players.Delete(current.id)
+			return
 		}
-	}()
+
+		// send keep alive every 20 seconds
+		time.Sleep(time.Second * 20)
+	}
 }

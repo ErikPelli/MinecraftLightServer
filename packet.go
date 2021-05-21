@@ -1,4 +1,4 @@
-package minecraft
+package MinecraftLightServer
 
 import (
 	"bytes"
@@ -13,6 +13,19 @@ import (
 type Packet struct {
 	ID   int32
 	Data bytes.Buffer
+}
+
+type PacketField interface {
+	PacketFieldWrite
+	PacketFieldRead
+}
+
+type PacketFieldWrite interface {
+	io.WriterTo
+}
+
+type PacketFieldRead interface {
+	io.ReaderFrom
 }
 
 // Pack prepares a packet and write it to w writer interface.
@@ -67,20 +80,20 @@ func (pk *Packet) Unpack(r io.Reader) error {
 	return nil
 }
 
-// Read implements io.Reader interface for Packet
+// Read implements io.Reader interface for Packet.
 func(pk *Packet) Read(p []byte) (n int, err error) {
 	return pk.Data.Read(p)
 }
 
-// Write implements io.Writer interface for Packet
+// Write implements io.Writer interface for Packet.
 func(pk *Packet) Write(p []byte) (n int, err error) {
 	return pk.Data.Write(p)
 }
 
-// IncludeToPacket appends data to current Packet.
-func NewPacket(packetid int32, data []io.WriterTo) *Packet{
+// NewPacket creates a new packet using input data.
+func NewPacket(packetID int32, data []PacketFieldWrite) *Packet {
 	packet := new(Packet)
-	packet.ID = packetid
+	packet.ID = packetID
 
 	for _, currType := range data{
 		_, _ = currType.WriteTo(packet)
