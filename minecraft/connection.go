@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"io"
 	"math/rand"
 	"net"
 	"time"
@@ -43,12 +44,10 @@ func(s *Server) newPlayer(p net.Conn) {
 		current.getNextPacket()
 
 		// Response packet
-		response := new(Packet)
-		response.ID = handshakePacketID
+		response := NewPacket(handshakePacketID, nil)
 
 		// JSON response
 		_, _ = String("{\"version\": {\"name\": \"1.16.5\",\"protocol\": 754},\"players\": {\"max\": 10,\"online\": 5},\"description\": {\"text\": \"Minecraft Light Server Go\"}}").WriteTo(response)
-
 		if err := response.Pack(current.connection); err != nil {
 			panic(err)
 		}
@@ -61,9 +60,7 @@ func(s *Server) newPlayer(p net.Conn) {
 		}
 
 		// Pong
-		pong := new(Packet)
-		pong.ID = 0x01
-		_, _ = pingPayload.WriteTo(pong)
+		pong := NewPacket(0x01, []io.WriterTo{pingPayload})
 		if err := pong.Pack(current.connection); err != nil {
 			panic(err)
 		}
@@ -79,10 +76,7 @@ func(s *Server) newPlayer(p net.Conn) {
 
 		// Login success
 		if loginStart.ID == handshakePacketID {
-			success := new(Packet)
-			success.ID = 0x02
-			_, _ = current.id.WriteTo(success)
-			_, _ = username.WriteTo(success)
+			success := NewPacket(0x02, []io.WriterTo{current.id, username})
 			if err := success.Pack(current.connection); err != nil {
 				panic(err)
 			}
@@ -100,11 +94,10 @@ func(s *Server) newPlayer(p net.Conn) {
 	// Keep Alive goroutine
 	go func() {
 		for {
-			keepAlive := new(Packet)
-			keepAlive.ID = keepAlivePacketID
-			_, _ = Long(rand.Int63()).WriteTo(keepAlive)
+			// Keep Alive packet with random int
+			keepAlive := NewPacket(keepAlivePacketID, []io.WriterTo{Long(rand.Int63())})
 
-			// Connection error, remove client from players
+			// if there is a connection error remove client from players map
 			if err := keepAlive.Pack(current.connection); err != nil {
 				s.players.Delete(current.id)
 				return

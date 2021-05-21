@@ -76,3 +76,15 @@ func(pk *Packet) Read(p []byte) (n int, err error) {
 func(pk *Packet) Write(p []byte) (n int, err error) {
 	return pk.Data.Write(p)
 }
+
+// IncludeToPacket appends data to current Packet.
+func NewPacket(packetid int32, data []io.WriterTo) *Packet{
+	packet := new(Packet)
+	packet.ID = packetid
+
+	for _, currType := range data{
+		_, _ = currType.WriteTo(packet)
+	}
+
+	return packet
+}
