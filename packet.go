@@ -12,7 +12,7 @@ import (
 // +--------+-----------+------+
 type Packet struct {
 	ID   int32
-	Data bytes.Buffer
+	data bytes.Buffer
 }
 
 type PacketField interface {
@@ -37,7 +37,7 @@ func (pk *Packet) Pack(w io.Writer) error {
 	}
 
 	// Total length
-	if _, err := VarInt(id.Len() + pk.Data.Len()).WriteTo(w); err != nil {
+	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(w); err != nil {
 		return err
 	}
 	// Packet id
@@ -45,7 +45,7 @@ func (pk *Packet) Pack(w io.Writer) error {
 		return err
 	}
 	// Data
-	if _, err := pk.Data.WriteTo(w); err != nil {
+	if _, err := pk.data.WriteTo(w); err != nil {
 		return err
 	}
 
@@ -68,11 +68,11 @@ func (pk *Packet) Unpack(r io.Reader) error {
 	if _, err := r.Read(buf); err != nil {
 		return errors.New("unable to read packet content: " + err.Error())
 	}
-	pk.Data = *bytes.NewBuffer(buf)
+	pk.data = *bytes.NewBuffer(buf)
 
 	// Get packet id
 	var packetID VarInt
-	if _, err := packetID.ReadFrom(&pk.Data); err != nil {
+	if _, err := packetID.ReadFrom(&pk.data); err != nil {
 		return errors.New("unable to read packet id: " + err.Error())
 	}
 	pk.ID = int32(packetID)
@@ -82,12 +82,12 @@ func (pk *Packet) Unpack(r io.Reader) error {
 
 // Read implements io.Reader interface for Packet.
 func(pk *Packet) Read(p []byte) (n int, err error) {
-	return pk.Data.Read(p)
+	return pk.data.Read(p)
 }
 
 // Write implements io.Writer interface for Packet.
 func(pk *Packet) Write(p []byte) (n int, err error) {
-	return pk.Data.Write(p)
+	return pk.data.Write(p)
 }
 
 // NewPacket creates a new packet using input data.

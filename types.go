@@ -372,7 +372,6 @@ func (a Angle) ToRad() float64 {
 	return 2 * math.Pi * float64(a) / 256
 }
 
-
 // WriteTo encodes a Float.
 func (f Float) WriteTo(w io.Writer) (n int64, err error) {
 	return Int(math.Float32bits(float32(f))).WriteTo(w)
@@ -389,6 +388,10 @@ func (f *Float) ReadFrom(r io.Reader) (n int64, err error) {
 
 	*f = Float(math.Float32frombits(uint32(v)))
 	return
+}
+
+func (f Float) toAngle() Angle {
+	return Angle(math.Floor(float64(f) / 360 * 256))
 }
 
 // WriteTo encodes a Double.
