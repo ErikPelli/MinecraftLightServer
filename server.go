@@ -9,6 +9,8 @@ const serverPort = "25565" // default listen port
 type Server struct {
 	port string
 	players sync.Map
+	counter int // number of users online
+	counterMut sync.Mutex
 }
 
 func NewServer() *Server {
@@ -28,4 +30,18 @@ func(s *Server) Start() error {
 	}
 
 	return nil
+}
+
+func(s *Server) incrementCounter() {
+	s.counterMut.Lock()
+	s.counter++
+	s.counterMut.Unlock()
+}
+
+func(s *Server) decrementCounter() {
+	s.counterMut.Lock()
+	if s.counter > 0 {
+		s.counter--
+	}
+	s.counterMut.Unlock()
 }

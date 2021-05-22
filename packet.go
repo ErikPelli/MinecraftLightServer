@@ -91,7 +91,7 @@ func(pk *Packet) Write(p []byte) (n int, err error) {
 }
 
 // NewPacket creates a new packet using input data.
-func NewPacket(packetID int32, data []PacketFieldWrite) *Packet {
+func NewPacket(packetID int32, data ...PacketFieldWrite) *Packet {
 	packet := new(Packet)
 	packet.ID = packetID
 

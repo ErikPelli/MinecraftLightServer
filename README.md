@@ -14,6 +14,9 @@ This project was inspired by:
 
 Everything has been adapted and rewritten to make code easy to understand
 
+## Known problems
+- A user can only re-enter after the KeepAlive has removed him from the players' map, and the client must have closed the connection
+
 ## Changes for the future
 - Support for chunk generation
 - Support for mobs

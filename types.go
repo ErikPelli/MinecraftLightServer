@@ -78,14 +78,15 @@ func (b *Boolean) ReadFrom(r io.Reader) (n int64, err error) {
 }
 
 // WriteTo encodes a String.
-func (s String) WriteTo(w io.Writer) (int64, error) {
+func (s String) WriteTo(w io.Writer) (n int64, err error) {
 	byteStr := []byte(s)
-	n1, err := VarInt(len(byteStr)).WriteTo(w)
+	n, err = VarInt(len(byteStr)).WriteTo(w)
 	if err != nil {
-		return n1, err
+		return
 	}
 	n2, err := w.Write(byteStr)
-	return n1 + int64(n2), err
+	n += int64(n2)
+	return
 }
 
 // ReadFrom decodes a String.
