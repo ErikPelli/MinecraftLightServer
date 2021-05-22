@@ -118,7 +118,7 @@ func (p *Player) joinGame() error {
 		String("minecraft:overworld"),      // spawn world
 		Long(0x123456789abcdef0),           // hashed seed
 		VarInt(10),                         // max players
-		VarInt(20),                         // rendering distance
+		VarInt(10),                         // rendering distance
 		Boolean(false),                     // reduced debug info
 		Boolean(false),                     // enable respawn screen
 		Boolean(false),                     // is debug
@@ -158,8 +158,8 @@ func (p *Player) writeChunk(x, y Int) error {
 		UnsignedByte(8),          								// bits per block
 		VarInt(256),              								// palette length
 		bytes.NewBuffer(palette),								// write palette
-		VarInt(512),              								// chunk length (512 long = 4096 bytes)
-		bytes.NewBuffer(chunk[x][y]),
+		VarInt(512), 											// chunk length (512 long = 4096 bytes)
+		bytes.NewBuffer(chunk),
 		// data end
 		VarInt(0), 												// number of block entities (zero)
 	)

@@ -7,11 +7,6 @@ import (
 	"math"
 )
 
-const(
-	maxVarIntLen  = 5
-	maxVarLongLen = 10
-)
-
 // Minecraft packet fields types
 type (
 	//Boolean type (true = 0x01, false = 0x00).
@@ -35,22 +30,14 @@ type (
 	//String is a sequence of Unicode values.
 	String string
 
-	//Identifier is encoded as a String with max length of 32767.
-	Identifier = String
-
 	//VarInt is variable-length data encoding a two's complement signed 32-bit integer.
 	VarInt int32
 	//VarLong is variable-length data encoding a two's complement signed 64-bit integer.
 	VarLong int64
 
-	//Position x as a 26-bit integer, followed by y as a 12-bit integer, followed by z as a 26-bit integer (all signed, two's complement)
-	Position struct {
-		X, Y, Z int
-	}
-	//Angle is rotation angle in steps of 1/256 of a full turn
+	//Angle is a rotation angle in steps of 1/256 of a full turn (360°).
 	Angle Byte
-
-	//UUID encoded as an unsigned 128-bit integer
+	//UUID is an unsigned 128-bit integer.
 	UUID uuid.UUID
 )
 
@@ -237,7 +224,7 @@ func (l *Long) ReadFrom(r io.Reader) (n int64, err error) {
 
 // WriteTo encodes a VarInt.
 func (v VarInt) WriteTo(w io.Writer) (n int64, err error) {
-	var vi = make([]byte, 0, maxVarIntLen)
+	var vi = make([]byte, 0, 5)
 	num := uint32(v)
 	for {
 		b := num & 0x7F
@@ -258,7 +245,7 @@ func (v VarInt) WriteTo(w io.Writer) (n int64, err error) {
 func (v *VarInt) ReadFrom(r io.Reader) (n int64, err error) {
 	var V uint32
 	for sec := byte(0x80); sec&0x80 != 0; n++ {
-		if n > maxVarIntLen {
+		if n > 5 {
 			return n, errors.New("VarInt is too big")
 		}
 
@@ -276,7 +263,7 @@ func (v *VarInt) ReadFrom(r io.Reader) (n int64, err error) {
 
 // WriteTo encodes a VarLong.
 func (v VarLong) WriteTo(w io.Writer) (n int64, err error) {
-	var vi = make([]byte, 0, maxVarLongLen)
+	var vi = make([]byte, 0, 10)
 	num := uint64(v)
 	for {
 		b := num & 0x7F
@@ -297,7 +284,7 @@ func (v VarLong) WriteTo(w io.Writer) (n int64, err error) {
 func (v *VarLong) ReadFrom(r io.Reader) (n int64, err error) {
 	var V uint64
 	for sec := byte(0x80); sec&0x80 != 0; n++ {
-		if n >= maxVarLongLen {
+		if n >= 10 {
 			return n, errors.New("VarLong is too big")
 		}
 		sec, err = readByte(r)
@@ -309,46 +296,6 @@ func (v *VarLong) ReadFrom(r io.Reader) (n int64, err error) {
 	}
 
 	*v = VarLong(V)
-	return
-}
-
-// WriteTo encodes a Position.
-func (p Position) WriteTo(w io.Writer) (n int64, err error) {
-	var b [8]byte
-	position := uint64(p.X&0x3FFFFFF)<<38 | uint64((p.Z&0x3FFFFFF)<<12) | uint64(p.Y&0xFFF)
-	for i := 7; i >= 0; i-- {
-		b[i] = byte(position)
-		position >>= 8
-	}
-	nn, err := w.Write(b[:])
-	return int64(nn), err
-}
-
-// ReadFrom decodes a Position.
-func (p *Position) ReadFrom(r io.Reader) (n int64, err error) {
-	var v Long
-	nn, err := v.ReadFrom(r)
-	if err != nil {
-		return nn, err
-	}
-	n += nn
-
-	x := int(v >> 38)
-	y := int(v & 0xFFF)
-	z := int(v << 26 >> 38)
-
-	// handle negatives number
-	if x >= 1<<25 {
-		x -= 1 << 26
-	}
-	if y >= 1<<11 {
-		y -= 1 << 12
-	}
-	if z >= 1<<25 {
-		z -= 1 << 26
-	}
-
-	p.X, p.Y, p.Z = x, y, z
 	return
 }
 
@@ -390,6 +337,7 @@ func (f *Float) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
+// ToAngle converts Float angle (0-360) to Angle (0-256).
 func (f Float) toAngle() Angle {
 	return Angle(math.Floor(float64(f) / 360 * 256))
 }
