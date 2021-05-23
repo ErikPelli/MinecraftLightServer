@@ -15,7 +15,13 @@ This project was inspired by:
 - [Go-mc](https://github.com/Tnze/go-mc), a Minecraft library written in Go.
 - [wiki vg](https://wiki.vg/Protocol), a website that has the documentation for every Minecraft package.
 
-Everything has been adapted and rewritten to make code easy to understand
+Everything has been adapted and rewritten to make code easy to understand.
+
+## Changes done
+- There can be only one username online at the same time
+- Concurrent handling of clients
+- Support for player running
+- Detection of a disconnected player is immediate
 
 ## Changes for the future
 - Support for chunk generation
