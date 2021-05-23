@@ -19,7 +19,7 @@ const (
 // Write packets
 const (
 	spawnPlayerPacketID         = 0x04
-	writeEntityAnimationID		= 0x05
+	writeEntityAnimationID      = 0x05
 	serverDifficultyPacketID    = 0x0D
 	writeChatPacketID           = 0x0E
 	keepAlivePacketID           = 0x1F
@@ -29,6 +29,7 @@ const (
 	broadcastPlayerInfoPacketID = 0x32
 	PlayerPositionPacketID      = 0x34
 	writeEntityLookPacketID     = 0x3A
+	updateViewPacketID          = 0x40
 	writeEntityMetadataPacketID = 0x44
 	writeEntityTeleportPacketID = 0x56
 )
@@ -113,8 +114,8 @@ func (p *Player) joinGame() error {
 		Byte(-1),                           // previous gameplay
 		VarInt(1),                          // only one world
 		String("minecraft:overworld"),      // available world
-		bytes.NewBuffer(dimensionCodecNBT), // dimension codec
-		bytes.NewBuffer(dimensionNBT),      // dimension
+		bytes.NewBuffer(dimensionCodecNBT), // world settings
+		bytes.NewBuffer(dimensionNBT),      // world settings
 		String("minecraft:overworld"),      // spawn world
 		Long(0x123456789abcdef0),           // hashed seed
 		VarInt(10),                         // max players
@@ -147,23 +148,38 @@ func (p *Player) writeServerDifficulty() error {
 func (p *Player) writeChunk(x, y Int) error {
 	chunk := NewPacket(writeChunkPacketID,
 		x, y,
-		Boolean(true), 											// full chunk
-		VarInt(0x01),  											// bit mask, blocks included in this data packet
+		Boolean(true), // full chunk
+		VarInt(0x01),  // bit mask, blocks included in this data packet
 		bytes.NewBuffer(heightMapNBT),
-		VarInt(1024),                                     		// biome array length
+		VarInt(1024),                                     // biome array length
 		bytes.NewBuffer(bytes.Repeat([]byte{127}, 1024)), // void biome
-		VarInt(4487),                                     		// length of data
+		VarInt(4487),                                     // length of data
 		// data start
-		Short(1),                 								// non-air blocks, client doesn't need it
-		UnsignedByte(8),          								// bits per block
-		VarInt(256),              								// palette length
-		bytes.NewBuffer(palette),								// write palette
-		VarInt(512), 											// chunk length (512 long = 4096 bytes)
+		Short(256),               // non-air blocks
+		UnsignedByte(8),          // bits per block
+		VarInt(256),              // palette length
+		bytes.NewBuffer(palette), // write palette
+		VarInt(512),              // chunk length (512 long, 4096 bytes)
 		bytes.NewBuffer(chunk),
 		// data end
-		VarInt(0), 												// number of block entities (zero)
+		VarInt(0), // number of block entities (zero)
 	)
 	return chunk.Pack(p.connection)
+}
+
+func convertCoordinatesToChunk(coord Double) VarInt {
+	coord /= 16
+	if coord < 0 {
+		coord -= 1
+	}
+	return VarInt(coord)
+}
+
+func (p *Player) updateViewPosition() error {
+	// convert player coordinates to current chunk coordinates
+	x := convertCoordinatesToChunk(p.x)
+	z := convertCoordinatesToChunk(p.z)
+	return NewPacket(updateViewPacketID, x, z).Pack(p.connection)
 }
 
 func (p *Player) writeChat(msg, username string) error {

@@ -10,9 +10,9 @@ import (
 const serverPort = "25565" // default listen port
 
 type Server struct {
-	port string
-	players sync.Map
-	counter int // number of users online
+	port       string
+	players    sync.Map // key
+	counter    int      // number of users online
 	counterMut sync.Mutex
 }
 
@@ -22,11 +22,11 @@ func NewServer() *Server {
 	return s
 }
 
-func(s *Server) SetPort(port string) {
+func (s *Server) SetPort(port string) {
 	s.port = port
 }
 
-func(s *Server) Start() error {
+func (s *Server) Start() error {
 	err := s.listen(serverPort)
 	if err != nil {
 		return err
@@ -35,13 +35,13 @@ func(s *Server) Start() error {
 	return nil
 }
 
-func(s *Server) incrementCounter() {
+func (s *Server) incrementCounter() {
 	s.counterMut.Lock()
 	s.counter++
 	s.counterMut.Unlock()
 }
 
-func(s *Server) decrementCounter() {
+func (s *Server) decrementCounter() {
 	s.counterMut.Lock()
 	if s.counter > 0 {
 		s.counter--
@@ -57,10 +57,10 @@ func (s *Server) keepAliveUser(current *Player) {
 
 		// if there is a connection error remove client from players map
 		if err := keepAlive.Pack(current.connection); err != nil {
-			s.players.Delete(current.id)
+			s.players.Delete(current.username)
 			s.decrementCounter()
 
-			fmt.Println("Client "+current.username+" has been disconnected")
+			fmt.Println("Client " + current.username + " has been disconnected")
 			current.closeGoroutineAndConnection(err)
 		}
 
@@ -103,7 +103,7 @@ func (s *Server) broadcastChatMessage(msg, username string) {
 		return true
 	})
 
-	fmt.Println("Broadcast chat message: <"+username+"> "+msg)
+	fmt.Println("Broadcast chat message: <" + username + "> " + msg)
 }
 
 func (s *Server) broadcastSpawnPlayer() {

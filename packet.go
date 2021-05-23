@@ -81,12 +81,12 @@ func (pk *Packet) Unpack(r io.Reader) error {
 }
 
 // Read implements io.Reader interface for Packet.
-func(pk *Packet) Read(p []byte) (n int, err error) {
+func (pk *Packet) Read(p []byte) (n int, err error) {
 	return pk.data.Read(p)
 }
 
 // Write implements io.Writer interface for Packet.
-func(pk *Packet) Write(p []byte) (n int, err error) {
+func (pk *Packet) Write(p []byte) (n int, err error) {
 	return pk.data.Write(p)
 }
 
@@ -95,7 +95,7 @@ func NewPacket(packetID int32, data ...PacketFieldWrite) *Packet {
 	packet := new(Packet)
 	packet.ID = packetID
 
-	for _, currType := range data{
+	for _, currType := range data {
 		_, _ = currType.WriteTo(packet)
 	}
 
