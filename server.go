@@ -11,16 +11,13 @@ import (
 
 const serverPort = "25565" // default listen port
 
-// Port is a listening port.
-type port struct {
-	port      string      // current listening port
-	portValue chan string // send port to listening function
-	err       chan error  // get errors
-}
-
 // Server is a running Minecraft server.
 type Server struct {
-	listener   port       // listening port
+	listener struct { // listening port handling
+		port      string      // current listening port
+		portValue chan string // send port to listening function
+		err       chan error  // get errors
+	}
 	players    sync.Map   // map of players online
 	counter    int        // number of players online
 	counterMut sync.Mutex // mutex for players counter
@@ -30,10 +27,15 @@ type Server struct {
 // Leave portNumber empty to use default port (25565).
 func NewServer(portNumber string) *Server {
 	s := new(Server)
+
 	if portNumber == "" {
 		portNumber = serverPort
 	}
-	s.listener = port{portNumber, make(chan string), make(chan error)}
+
+	s.listener.port = portNumber
+	s.listener.portValue = make(chan string)
+	s.listener.err = make(chan error)
+
 	return s
 }
 

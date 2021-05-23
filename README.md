@@ -1,8 +1,6 @@
 # MinecraftLightServer
 This is a Proof of Concept of a simple Minecraft server written in Go, that has a simple multiplayer world.
 
-![MinecraftLightServer chunk](screenshots/screenshot1.png?raw=true "Chunk")
-
 ## Version
 This server actually supports only Minecraft 1.16.5 clients.
 
@@ -17,13 +15,18 @@ This project was inspired by:
 
 Everything has been adapted and rewritten to make code easy to understand.
 
-## Changes done
+## Screenshots
+![MinecraftLightServer chunk](screenshots/screenshot1.png?raw=true "Chunk")
+![MinecraftLightServer chat](screenshots/screenshot2.png?raw=true "Chat")
+![MinecraftLightServer player moved](screenshots/screenshot3.png?raw=true "Player moved")
+
+## Changelog
 - There can be only one username online at the same time
 - Concurrent handling of clients
 - Support for player running
 - Detection of a disconnected player is immediate
 
-## Changes for the future
+### Changes for the future
 - Support for chunk generation
 - Support for mobs
 - Game changes saving
