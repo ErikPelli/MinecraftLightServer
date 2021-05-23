@@ -7,22 +7,38 @@ import (
 	"net"
 )
 
-func (s *Server) listen(port string) error {
-	listener, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
+func (s *Server) listen(portNumber chan string, errChannel chan error) {
+	var listener net.Listener
+	isListening := true
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println(err)
-			continue
+	go func() {
+		for newPort := range portNumber {
+			if listener != nil {
+				_ = listener.Close()
+			}
+
+			var err error
+			listener, err = net.Listen("tcp", ":"+newPort)
+			errChannel <- err
 		}
 
-		go s.newPlayer(conn)
+		close(errChannel)
+		isListening = false
+	}()
+
+	for isListening {
+		// Check if listener has been initialized
+		if listener != nil {
+			conn, err := listener.Accept()
+
+			// Handle request if there aren't errors
+			if err == nil {
+				go s.newPlayer(conn)
+			}
+		}
 	}
+
+	_ = listener.Close()
 }
 
 func (s *Server) newPlayer(p net.Conn) {
@@ -31,18 +47,29 @@ func (s *Server) newPlayer(p net.Conn) {
 		x:          0,
 		y:          5,
 		z:          0,
-		yawAbs:     0, pitchAbs: 0,
-		pitch: 0, yaw: 0,
-		onGround: true,
+		yawAbs:     0,
+		pitchAbs:   0,
+		pitch:      0,
+		yaw:        0,
+		onGround:   true,
 	}
 
-	handshakeState, err := current.readHandshake()
+	// Get client handshake packet
+	handshake, err := current.getNextPacket()
 	if err != nil {
-		current.closeGoroutineAndConnection(err)
+		s.removePlayer(&current, err)
+	} else if handshake.ID != handshakePacketID {
+		s.removePlayer(&current, errors.New("wrong handshake packet id"))
+	}
+
+	// Parse packet and save next state field
+	handshakeNextState, err := current.readHandshake(handshake)
+	if err != nil {
+		s.removePlayer(&current, err)
 	}
 
 	// https://wiki.vg/Server_List_Ping
-	if *handshakeState == 1 {
+	if *handshakeNextState == 1 {
 		defer current.connection.Close()
 
 		// Request packet
@@ -60,18 +87,18 @@ func (s *Server) newPlayer(p net.Conn) {
 		// Ping
 		ping, err := current.getNextPacket()
 		if err != nil {
-			current.closeGoroutineAndConnection(err)
+			s.removePlayer(&current, err)
 		}
 
 		var pingPayload Long
 		if _, err := pingPayload.ReadFrom(ping); err != nil {
-			current.closeGoroutineAndConnection(err)
+			s.removePlayer(&current, err)
 		}
 
 		// Pong
 		pong := NewPacket(handshakePong, pingPayload)
 		if err := pong.Pack(current.connection); err != nil {
-			current.closeGoroutineAndConnection(err)
+			s.removePlayer(&current, err)
 		}
 
 		return
@@ -79,7 +106,7 @@ func (s *Server) newPlayer(p net.Conn) {
 		// Login start
 		loginStart, err := current.getNextPacket()
 		if err != nil {
-			current.closeGoroutineAndConnection(err)
+			s.removePlayer(&current, err)
 		}
 
 		_, _ = current.username.ReadFrom(loginStart)
@@ -94,32 +121,31 @@ func (s *Server) newPlayer(p net.Conn) {
 			}
 
 			// Save current Player in players sync map
-			s.players.Store(current.username, &current)
-			s.incrementCounter()
+			s.addPlayer(&current)
 		} else {
-			current.closeGoroutineAndConnection(errors.New("invalid login packet id"))
+			s.removePlayer(&current, errors.New("invalid login packet id"))
 		}
 	}
 
 	// Set Player parameters
-	if err := current.joinGame(); err != nil {
-		current.closeGoroutineAndConnection(err)
+	if err := current.writeJoinGame(); err != nil {
+		s.removePlayer(&current, err)
 	}
 	if err := current.writePlayerPosition(
 		current.x, current.y, current.z,
 		current.yawAbs, current.pitchAbs,
-		Byte(0x00), VarInt(current.getIntfromUUID())); err != nil {
-		current.closeGoroutineAndConnection(err)
+		Byte(0x00), VarInt(current.getIntFromUUID())); err != nil {
+		s.removePlayer(&current, err)
 	}
 	if err := current.writeServerDifficulty(); err != nil {
-		current.closeGoroutineAndConnection(err)
+		s.removePlayer(&current, err)
 	}
 
 	// send 4 chunks to client
 	chunks := [][]Int{{-1, 0}, {0, 0}, {-1, -1}, {0, -1}}
 	for _, position := range chunks {
 		if err := current.writeChunk(position[0], position[1]); err != nil {
-			current.closeGoroutineAndConnection(err)
+			s.removePlayer(&current, err)
 		}
 	}
 
@@ -129,17 +155,17 @@ func (s *Server) newPlayer(p net.Conn) {
 	s.broadcastSpawnPlayer()
 
 	// User packets handler goroutine
-	go current.handlePacket(s)
+	go s.handlePacket(&current)
 
 	// Keep Alive goroutine
 	go s.keepAliveUser(&current)
 }
 
-func (p *Player) handlePacket(s *Server) {
+func (s *Server) handlePacket(p *Player) {
 	for {
 		packet, err := p.getNextPacket()
 		if err != nil {
-			p.closeGoroutineAndConnection(err)
+			s.removePlayer(p, err)
 		}
 
 		switch packet.ID {
@@ -149,7 +175,7 @@ func (p *Player) handlePacket(s *Server) {
 		case readChatPacketID:
 			var message String
 			if _, err := message.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			s.broadcastChatMessage(string(message), string(p.username))
 
@@ -162,27 +188,27 @@ func (p *Player) handlePacket(s *Server) {
 			oldZ := p.z
 
 			if _, err := p.x.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.y.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.z.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 
 			// Update player chunk view if chunk has changed
 			if p.z != oldZ || convertCoordinatesToChunk(p.x) != convertCoordinatesToChunk(oldX) {
 				if err := p.updateViewPosition(); err != nil {
-					p.closeGoroutineAndConnection(err)
+					s.removePlayer(p, err)
 				}
 			}
 
 			// Send to other players
-			s.broadcastPlayerPosAndLook(VarInt(p.getIntfromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
+			s.broadcastPlayerPosAndLook(VarInt(p.getIntFromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
 
 		case readPositionAndLookPacketID:
 			// Old position
@@ -190,22 +216,22 @@ func (p *Player) handlePacket(s *Server) {
 			oldZ := p.z
 
 			if _, err := p.x.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.y.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.z.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.yawAbs.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 
 			// Calculate yaw and pitch
@@ -215,22 +241,22 @@ func (p *Player) handlePacket(s *Server) {
 			// Update player chunk view if chunk has changed
 			if p.z != oldZ || convertCoordinatesToChunk(p.x) != convertCoordinatesToChunk(oldX) {
 				if err := p.updateViewPosition(); err != nil {
-					p.closeGoroutineAndConnection(err)
+					s.removePlayer(p, err)
 				}
 			}
 
 			// Send to other players
-			s.broadcastPlayerPosAndLook(VarInt(p.getIntfromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
+			s.broadcastPlayerPosAndLook(VarInt(p.getIntFromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
 
 		case readRotationPacketID:
 			if _, err := p.yawAbs.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
 
 			// Calculate yaw and pitch
@@ -238,23 +264,23 @@ func (p *Player) handlePacket(s *Server) {
 			p.pitch = p.pitchAbs.toAngle()
 
 			// Send to other players
-			s.broadcastPlayerRotation(VarInt(p.getIntfromUUID()), p.yaw, p.pitch, p.onGround)
+			s.broadcastPlayerRotation(VarInt(p.getIntFromUUID()), p.yaw, p.pitch, p.onGround)
 
 		case readEntityActionPacketID:
 			_, _ = new(VarInt).ReadFrom(packet) // discard entity id
 
 			var actionID VarInt
 			if _, err := actionID.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
-			s.broadcastEntityAction(VarInt(p.getIntfromUUID()), actionID)
+			s.broadcastEntityAction(VarInt(p.getIntFromUUID()), actionID)
 
 		case readAnimationPacketID:
 			var animationID VarInt
 			if _, err := animationID.ReadFrom(packet); err != nil {
-				p.closeGoroutineAndConnection(err)
+				s.removePlayer(p, err)
 			}
-			s.broadcastEntityAnimation(VarInt(p.getIntfromUUID()), animationID)
+			s.broadcastEntityAnimation(VarInt(p.getIntFromUUID()), animationID)
 
 		default:
 			// log unknown packet

@@ -1,72 +1,119 @@
 package MinecraftLightServer
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"time"
 )
 
 const serverPort = "25565" // default listen port
 
-type Server struct {
-	port       string
-	players    sync.Map // key
-	counter    int      // number of users online
-	counterMut sync.Mutex
+// Port is a listening port.
+type port struct {
+	port      string      // current listening port
+	portValue chan string // send port to listening function
+	err       chan error  // get errors
 }
 
-func NewServer() *Server {
+// Server is a running Minecraft server.
+type Server struct {
+	listener   port       // listening port
+	players    sync.Map   // map of players online
+	counter    int        // number of players online
+	counterMut sync.Mutex // mutex for players counter
+}
+
+// NewServer creates a new Server using default port.
+// Leave portNumber empty to use default port (25565).
+func NewServer(portNumber string) *Server {
 	s := new(Server)
-	s.port = serverPort
+	if portNumber == "" {
+		portNumber = serverPort
+	}
+	s.listener = port{portNumber, make(chan string), make(chan error)}
 	return s
 }
 
-func (s *Server) SetPort(port string) {
-	s.port = port
+// Start starts the server using the current port.
+func (s *Server) Start() error {
+	go s.listen(s.listener.portValue, s.listener.err)
+	s.listener.portValue <- s.listener.port
+	return <-s.listener.err
 }
 
-func (s *Server) Start() error {
-	err := s.listen(serverPort)
-	if err != nil {
-		return err
-	}
+// SetPort changes port of the Minecraft server.
+// Use it when server is running.
+func (s *Server) SetPort(portNumber string) error {
+	s.listener.portValue <- portNumber
+	return <-s.listener.err
+}
 
+// Close stops the server and close its components.
+func (s *Server) Close() error {
+	close(s.listener.portValue)
+	s.players.Range(func(key interface{}, value interface{}) bool {
+		s.removePlayer(value.(*Player), errors.New("server closed"))
+		return true
+	})
 	return nil
 }
 
-func (s *Server) incrementCounter() {
-	s.counterMut.Lock()
-	s.counter++
-	s.counterMut.Unlock()
-}
-
-func (s *Server) decrementCounter() {
-	s.counterMut.Lock()
-	if s.counter > 0 {
-		s.counter--
-	}
-	s.counterMut.Unlock()
-}
-
-func (s *Server) keepAliveUser(current *Player) {
+// keepAliveUser sends keepalive packet to current player.
+// This function must be started within a new goroutine.
+func (s *Server) keepAliveUser(p *Player) {
 	for {
 		// Keep Alive packet with random int
 		random := Long(rand.Int63())
 		keepAlive := NewPacket(keepAlivePacketID, random)
 
 		// if there is a connection error remove client from players map
-		if err := keepAlive.Pack(current.connection); err != nil {
-			s.players.Delete(current.username)
-			s.decrementCounter()
-
-			fmt.Println("Client " + current.username + " has been disconnected")
-			current.closeGoroutineAndConnection(err)
+		if err := keepAlive.Pack(p.connection); err != nil {
+			s.removePlayer(p, err)
 		}
 
 		// send keep alive every 18 seconds (the maximum limit is 20 seconds)
 		time.Sleep(time.Second * 18)
 	}
+}
+
+// addPlayer add a player and removes players
+// actually connected with same username.
+func (s *Server) addPlayer(p *Player) {
+	precedent, ok := s.players.LoadAndDelete(p.username)
+	if ok {
+		// Close the connection if not already done
+		_ = precedent.(*Player).connection.Close()
+	} else {
+		// Increment players counter if the player is new
+		s.counterMut.Lock()
+		s.counter++
+		s.counterMut.Unlock()
+	}
+	s.players.Store(p.username, p)
+}
+
+// removePlayer removes a player from current Server.
+// must be invoked by the player's handler goroutine.
+func (s *Server) removePlayer(p *Player, err error) {
+	// Close the connection if not already done
+	_ = p.connection.Close()
+
+	// Remove player from players map
+	if _, ok := s.players.LoadAndDelete(p.username); ok {
+		// log error
+		fmt.Println("Client " + string(p.username) + " has been removed due to [" + err.Error() + "]")
+
+		// Decrement players counter if deleted
+		s.counterMut.Lock()
+		s.counter--
+		s.counterMut.Unlock()
+	}
+
+	// Exit current player goroutine
+	runtime.Goexit()
 }
 
 func (s *Server) broadcastPlayerInfo() {
@@ -98,7 +145,7 @@ func (s *Server) broadcastChatMessage(msg, username string) {
 	s.players.Range(func(key interface{}, value interface{}) bool {
 		player := value.(*Player)
 		if err := player.writeChat(msg, username); err != nil {
-			player.closeGoroutineAndConnection(err)
+			s.removePlayer(player, err)
 		}
 		return true
 	})
@@ -114,7 +161,7 @@ func (s *Server) broadcastSpawnPlayer() {
 			otherPlayer := p.(*Player)
 			if currentPlayer.id != otherPlayer.id {
 				_ = currentPlayer.writeSpawnPlayer(
-					VarInt(otherPlayer.getIntfromUUID()),
+					VarInt(otherPlayer.getIntFromUUID()),
 					otherPlayer.id,
 					otherPlayer.x,
 					otherPlayer.y,
@@ -123,7 +170,7 @@ func (s *Server) broadcastSpawnPlayer() {
 					otherPlayer.pitch,
 				)
 				_ = currentPlayer.writeEntityLook(
-					VarInt(otherPlayer.getIntfromUUID()),
+					VarInt(otherPlayer.getIntFromUUID()),
 					otherPlayer.yaw,
 				)
 			}
@@ -138,7 +185,7 @@ func (s *Server) broadcastPlayerPosAndLook(id VarInt, x, y, z Double, yaw, pitch
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntfromUUID()) != id {
+		if VarInt(player.getIntFromUUID()) != id {
 			_ = player.writeEntityTeleport(x, y, z, yaw, pitch, onGround, id)
 			_ = player.writeEntityLook(id, yaw)
 		}
@@ -152,7 +199,7 @@ func (s *Server) broadcastPlayerRotation(id VarInt, yaw, pitch Angle, onGround B
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntfromUUID()) != id {
+		if VarInt(player.getIntFromUUID()) != id {
 			_ = player.writeEntityRotation(id, yaw, pitch, onGround)
 			_ = player.writeEntityLook(id, yaw)
 		}
@@ -166,7 +213,7 @@ func (s *Server) broadcastEntityAction(id VarInt, action VarInt) {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntfromUUID()) != id {
+		if VarInt(player.getIntFromUUID()) != id {
 			_ = player.writeEntityAction(id, action)
 		}
 
@@ -179,7 +226,7 @@ func (s *Server) broadcastEntityAnimation(id VarInt, animation VarInt) {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntfromUUID()) != id {
+		if VarInt(player.getIntFromUUID()) != id {
 			_ = player.writeEntityAnimation(id, animation)
 		}
 

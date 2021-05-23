@@ -3,9 +3,7 @@ package MinecraftLightServer
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"net"
-	"runtime"
 )
 
 // Based on https://wiki.vg/Protocol
@@ -46,43 +44,32 @@ const (
 	readAnimationPacketID       = 0x2C
 )
 
+// Player represents a single player that is in the server
 type Player struct {
-	connection       net.Conn
-	id               UUID
-	username         String
-	x, y, z          Double
-	yawAbs, pitchAbs Float // absolute values
-	yaw, pitch       Angle
-	onGround         Boolean
+	connection       net.Conn // tcp connection
+	id               UUID     // generated UUID
+	username         String   // player username
+	x, y, z          Double   // current coordinates of player
+	yawAbs, pitchAbs Float    // absolute values in degrees
+	yaw, pitch       Angle    // angle in 1/256
+	onGround         Boolean  // is the player on ground?
 }
 
+// Get next packet sent by current client
 func (p *Player) getNextPacket() (*Packet, error) {
 	packet := new(Packet)
 	err := packet.Unpack(p.connection)
 	return packet, err
 }
 
-func (p *Player) closeGoroutineAndConnection(err error) {
-	fmt.Println(err)
-	_ = p.connection.Close()
-	runtime.Goexit()
-}
-
-func (p *Player) getIntfromUUID() Int {
-	playerId := int32(p.id[0])<<24 | int32(p.id[1])<<16 | int32(p.id[2])<<8 | int32(p.id[3])
-	return Int(playerId)
-}
-
-func (p *Player) readHandshake() (state *VarInt, err error) {
-	packet, err := p.getNextPacket()
-	if err != nil {
-		return
-	}
-
+func (p *Player) readHandshake(packet *Packet) (state *VarInt, err error) {
 	// Protocol version
 	version := new(VarInt)
 	if _, err = version.ReadFrom(packet); err != nil {
 		return
+	} else if *version != minecraftProtocol {
+		// Check minecraft protocol version
+		err = errors.New("wrong protocol version")
 	}
 
 	// Discard server address and port
@@ -91,58 +78,54 @@ func (p *Player) readHandshake() (state *VarInt, err error) {
 
 	// Next state
 	state = new(VarInt)
-	if _, err = state.ReadFrom(packet); err != nil {
-		return
-	}
-
-	if packet.ID != handshakePacketID {
-		err = errors.New("wrong packet id")
-	} else if *version != minecraftProtocol {
-		err = errors.New("wrong protocol version")
-	} else if *state != 1 && *state != 2 {
-		err = errors.New("wrong next state")
+	if _, err = state.ReadFrom(packet); err == nil {
+		// if no error, check value
+		if *state != 1 && *state != 2 {
+			// Check next state value
+			err = errors.New("wrong next state")
+		}
 	}
 
 	return
 }
 
-func (p *Player) joinGame() error {
-	join := NewPacket(joinGamePacketID,
-		p.getIntfromUUID(),                 // Entity ID
+func (p *Player) getIntFromUUID() Int {
+	// 4 MSBs
+	return Int(int32(p.id[0])<<24 | int32(p.id[1])<<16 | int32(p.id[2])<<8 | int32(p.id[3]))
+}
+
+func (p *Player) writeJoinGame() error {
+	return NewPacket(joinGamePacketID,
+		p.getIntFromUUID(),                 // Entity ID
 		Boolean(false),                     // Is hardcore
-		UnsignedByte(0),                    // Survival mode
+		UnsignedByte(0),                    // 0 = Survival mode
 		Byte(-1),                           // previous gameplay
-		VarInt(1),                          // only one world
+		VarInt(1),                          // there is only one world
 		String("minecraft:overworld"),      // available world
 		bytes.NewBuffer(dimensionCodecNBT), // world settings
-		bytes.NewBuffer(dimensionNBT),      // world settings
-		String("minecraft:overworld"),      // spawn world
+		bytes.NewBuffer(dimensionNBT),      //
+		String("minecraft:overworld"),      // player spawn world
 		Long(0x123456789abcdef0),           // hashed seed
 		VarInt(10),                         // max players
-		VarInt(10),                         // rendering distance
+		VarInt(10),                         // rendering distance in chunks
 		Boolean(false),                     // reduced debug info
 		Boolean(false),                     // enable respawn screen
 		Boolean(false),                     // is debug
 		Boolean(true),                      // is flat
-	)
-
-	return join.Pack(p.connection)
+	).Pack(p.connection)
 }
 
 func (p *Player) writePlayerPosition(x, y, z Double, yawAbs, pitchAbs Float, flags Byte, teleportID VarInt) error {
-	position := NewPacket(PlayerPositionPacketID,
-		x, y, z, // coordinates
-		yawAbs, pitchAbs, // visual
-		flags, teleportID,
-	)
-
-	return position.Pack(p.connection)
+	return NewPacket(PlayerPositionPacketID,
+		x, y, z, // player coordinates
+		yawAbs, pitchAbs, // player visual
+		flags, teleportID, // parameters for client
+	).Pack(p.connection)
 }
 
 func (p *Player) writeServerDifficulty() error {
-	// locked peaceful mode
-	difficult := NewPacket(serverDifficultyPacketID, UnsignedByte(0), Boolean(true))
-	return difficult.Pack(p.connection)
+	// Mode: peaceful, locked
+	return NewPacket(serverDifficultyPacketID, UnsignedByte(0), Boolean(true)).Pack(p.connection)
 }
 
 func (p *Player) writeChunk(x, y Int) error {
