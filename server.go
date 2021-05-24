@@ -72,13 +72,14 @@ func (s *Server) keepAliveUser(p *Player) {
 		random := Long(rand.Int63())
 		keepAlive := NewPacket(keepAlivePacketID, random)
 
-		// if there is a connection error remove client from players map
+		// If there is a connection error remove client from players map
 		if err := keepAlive.Pack(p.connection); err != nil {
-			// Exit from this keepalive goroutine
-			// if user has been deleted
 			if p.isDeleted {
-				runtime.Goexit()
+				// Stop keepalive if user has been deleted
+				break
 			} else {
+				// If there is an error and player hasn't
+				// yet been deleted, delete him
 				s.removePlayerAndExit(p, err)
 			}
 		}
@@ -112,7 +113,7 @@ func (s *Server) removePlayer(p *Player, err error) {
 
 	// Remove player from players map
 	if _, ok := s.players.LoadAndDelete(p.username); ok {
-		// log error
+		// Log error
 		fmt.Println("Client " + string(p.username) + " has been removed due to [" + err.Error() + "]")
 
 		// Decrement players counter if deleted
@@ -129,8 +130,8 @@ func (s *Server) removePlayer(p *Player, err error) {
 			).Pack(value.(*Player).connection)
 
 			_ = NewPacket(destroyEntityPacketID,
-				VarInt(1),                  // number of players
-				VarInt(p.getIntFromUUID()), // uuid
+				VarInt(1),                 // number of players
+				VarInt(p.int32FromUUID()), // uuid
 			).Pack(value.(*Player).connection)
 
 			return true
@@ -155,8 +156,8 @@ func (s *Server) broadcastPlayerInfo() {
 			VarInt(s.counter), // number of players
 		)
 
+		// Add every player to packet
 		s.players.Range(func(key interface{}, value interface{}) bool {
-			// Add every player to packet
 			_, _ = value.(*Player).id.WriteTo(broadcast)       // player uuid
 			_, _ = value.(*Player).username.WriteTo(broadcast) // username
 			_, _ = VarInt(0).WriteTo(broadcast)                // no properties
@@ -177,7 +178,7 @@ func (s *Server) broadcastPlayerInfo() {
 func (s *Server) broadcastChatMessage(msg, username string) {
 	s.players.Range(func(key interface{}, value interface{}) bool {
 		player := value.(*Player)
-		if err := player.writeChat(msg, username); err != nil {
+		if err := player.writeChatMessage(msg, username); err != nil {
 			s.removePlayerAndExit(player, err)
 		}
 		return true
@@ -186,6 +187,7 @@ func (s *Server) broadcastChatMessage(msg, username string) {
 	fmt.Println("Broadcast chat message: <" + username + "> " + msg)
 }
 
+// broadcastSpawnPlayer sends the position of all other players to every client.
 func (s *Server) broadcastSpawnPlayer() {
 	s.players.Range(func(key interface{}, playerInterface interface{}) bool {
 		currentPlayer := playerInterface.(*Player)
@@ -194,7 +196,7 @@ func (s *Server) broadcastSpawnPlayer() {
 			otherPlayer := p.(*Player)
 			if currentPlayer.id != otherPlayer.id {
 				_ = currentPlayer.writeSpawnPlayer(
-					VarInt(otherPlayer.getIntFromUUID()),
+					VarInt(otherPlayer.int32FromUUID()),
 					otherPlayer.id,
 					otherPlayer.x,
 					otherPlayer.y,
@@ -203,7 +205,7 @@ func (s *Server) broadcastSpawnPlayer() {
 					otherPlayer.pitch,
 				)
 				_ = currentPlayer.writeEntityLook(
-					VarInt(otherPlayer.getIntFromUUID()),
+					VarInt(otherPlayer.int32FromUUID()),
 					otherPlayer.yaw,
 				)
 			}
@@ -213,12 +215,13 @@ func (s *Server) broadcastSpawnPlayer() {
 	})
 }
 
+// broadcastPlayerPosAndLook sends to all other clients the position and the view of a player.
 func (s *Server) broadcastPlayerPosAndLook(id VarInt, x, y, z Double, yaw, pitch Angle, onGround Boolean) {
 	s.players.Range(func(key interface{}, playerInterface interface{}) bool {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntFromUUID()) != id {
+		if VarInt(player.int32FromUUID()) != id {
 			_ = player.writeEntityTeleport(x, y, z, yaw, pitch, onGround, id)
 			_ = player.writeEntityLook(id, yaw)
 		}
@@ -227,12 +230,13 @@ func (s *Server) broadcastPlayerPosAndLook(id VarInt, x, y, z Double, yaw, pitch
 	})
 }
 
+// broadcastPlayerPosAndLook sends to all other clients the rotation and the look of a player.
 func (s *Server) broadcastPlayerRotation(id VarInt, yaw, pitch Angle, onGround Boolean) {
 	s.players.Range(func(key interface{}, playerInterface interface{}) bool {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntFromUUID()) != id {
+		if VarInt(player.int32FromUUID()) != id {
 			_ = player.writeEntityRotation(id, yaw, pitch, onGround)
 			_ = player.writeEntityLook(id, yaw)
 		}
@@ -241,12 +245,13 @@ func (s *Server) broadcastPlayerRotation(id VarInt, yaw, pitch Angle, onGround B
 	})
 }
 
+// broadcastEntityAction sends to all other clients an action of a player.
 func (s *Server) broadcastEntityAction(id VarInt, action VarInt) {
 	s.players.Range(func(key interface{}, playerInterface interface{}) bool {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntFromUUID()) != id {
+		if VarInt(player.int32FromUUID()) != id {
 			_ = player.writeEntityAction(id, action)
 		}
 
@@ -254,12 +259,13 @@ func (s *Server) broadcastEntityAction(id VarInt, action VarInt) {
 	})
 }
 
+// broadcastEntityAnimation sends to all other clients an animation of a player.
 func (s *Server) broadcastEntityAnimation(id VarInt, animation VarInt) {
 	s.players.Range(func(key interface{}, playerInterface interface{}) bool {
 		player := playerInterface.(*Player)
 
 		// Don't send to current player
-		if VarInt(player.getIntFromUUID()) != id {
+		if VarInt(player.int32FromUUID()) != id {
 			_ = player.writeEntityAnimation(id, animation)
 		}
 

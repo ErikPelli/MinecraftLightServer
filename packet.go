@@ -15,36 +15,25 @@ type Packet struct {
 	data bytes.Buffer
 }
 
-type PacketField interface {
-	PacketFieldWrite
-	PacketFieldRead
-}
-
-type PacketFieldWrite interface {
-	io.WriterTo
-}
-
-type PacketFieldRead interface {
-	io.ReaderFrom
-}
-
 // Pack prepares a packet and write it to w writer interface.
 func (pk *Packet) Pack(w io.Writer) error {
 	// Write packet id to buffer
 	var id bytes.Buffer
 	if _, err := VarInt(pk.ID).WriteTo(&id); err != nil {
-		panic(err)
+		return err
 	}
 
-	// Total length
+	// Write total length
 	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(w); err != nil {
 		return err
 	}
-	// Packet id
+
+	// Write packet id
 	if _, err := id.WriteTo(w); err != nil {
 		return err
 	}
-	// Data
+
+	// Write data
 	if _, err := pk.data.WriteTo(w); err != nil {
 		return err
 	}
@@ -58,8 +47,7 @@ func (pk *Packet) Unpack(r io.Reader) error {
 	var length VarInt
 	if _, err := length.ReadFrom(r); err != nil {
 		return err
-	}
-	if length < 1 {
+	} else if length < 1 {
 		return errors.New("packet length too small")
 	}
 
@@ -91,7 +79,7 @@ func (pk *Packet) Write(p []byte) (n int, err error) {
 }
 
 // NewPacket creates a new packet using input data.
-func NewPacket(packetID int32, data ...PacketFieldWrite) *Packet {
+func NewPacket(packetID int32, data ...io.WriterTo) *Packet {
 	packet := new(Packet)
 	packet.ID = packetID
 

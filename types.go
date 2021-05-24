@@ -9,35 +9,35 @@ import (
 
 // Minecraft packet fields types
 type (
-	//Boolean type (true = 0x01, false = 0x00).
+	// Boolean type (true = 0x01, false = 0x00).
 	Boolean bool
-	//Byte is signed 8-bit integer, two's complement.
+	// Byte is signed 8-bit integer, two's complement.
 	Byte int8
-	//UnsignedByte is unsigned 8-bit integer.
+	// UnsignedByte is unsigned 8-bit integer.
 	UnsignedByte uint8
-	//Short is signed 16-bit integer, two's complement.
+	// Short is signed 16-bit integer, two's complement.
 	Short int16
-	//UnsignedShort is unsigned 16-bit integer.
+	// UnsignedShort is unsigned 16-bit integer.
 	UnsignedShort uint16
-	//Int is signed 32-bit integer, two's complement.
+	// Int is signed 32-bit integer, two's complement.
 	Int int32
-	//Long is signed 64-bit integer, two's complement.
+	// Long is signed 64-bit integer, two's complement.
 	Long int64
-	//A Float is a single-precision 32-bit IEEE 754 floating point number.
+	// A Float is a single-precision 32-bit IEEE 754 floating point number.
 	Float float32
-	//A Double is a double-precision 64-bit IEEE 754 floating point number.
+	// A Double is a double-precision 64-bit IEEE 754 floating point number.
 	Double float64
-	//String is a sequence of Unicode values.
+	// String is a sequence of Unicode values.
 	String string
 
-	//VarInt is variable-length data encoding a two's complement signed 32-bit integer.
+	// VarInt is variable-length data encoding a two's complement signed 32-bit integer.
 	VarInt int32
-	//VarLong is variable-length data encoding a two's complement signed 64-bit integer.
+	// VarLong is variable-length data encoding a two's complement signed 64-bit integer.
 	VarLong int64
 
-	//Angle is a rotation angle in steps of 1/256 of a full turn (360°).
+	// Angle is a rotation angle in steps of 1/256 of a full turn (360°).
 	Angle Byte
-	//UUID is an unsigned 128-bit integer.
+	// UUID is an unsigned 128-bit integer.
 	UUID uuid.UUID
 )
 
@@ -78,7 +78,7 @@ func (s String) WriteTo(w io.Writer) (n int64, err error) {
 
 // ReadFrom decodes a String.
 func (s *String) ReadFrom(r io.Reader) (n int64, err error) {
-	var l VarInt //String length
+	var l VarInt // String length
 
 	nn, err := l.ReadFrom(r)
 	if err != nil {
@@ -369,4 +369,13 @@ func (u UUID) WriteTo(w io.Writer) (n int64, err error) {
 func (u *UUID) ReadFrom(r io.Reader) (n int64, err error) {
 	nn, err := io.ReadFull(r, (*u)[:])
 	return int64(nn), err
+}
+
+// coordinateToChunk convert an absolute double coordinate to a chunk coordinate.
+func coordinateToChunk(coordinate Double) VarInt {
+	coordinate /= 16
+	if coordinate < 0 {
+		coordinate -= 1
+	}
+	return VarInt(coordinate)
 }

@@ -6,7 +6,7 @@ import (
 	"net"
 )
 
-// Based on https://wiki.vg/Protocol
+// Minecraft protocol and handshake constants.
 const (
 	minecraftProtocol     = 754
 	handshakePacketID     = 0x00
@@ -14,7 +14,7 @@ const (
 	handshakeLoginSuccess = 0x02
 )
 
-// Write packets
+// Minecraft write packets (id).
 const (
 	spawnPlayerPacketID         = 0x04
 	writeEntityAnimationID      = 0x05
@@ -33,7 +33,7 @@ const (
 	writeEntityTeleportPacketID = 0x56
 )
 
-// Read packets
+// Minecraft read packets (id).
 const (
 	readTeleportConfirmPacketID = 0x00
 	readChatPacketID            = 0x03
@@ -45,25 +45,26 @@ const (
 	readAnimationPacketID       = 0x2C
 )
 
-// Player represents a single player that is in the server
+// Player is a single player that is currently in the server.
 type Player struct {
-	connection       net.Conn // tcp connection
-	id               UUID     // generated UUID
-	isDeleted		 bool     // true when current user has been deleted
+	connection       net.Conn // TCP connection
+	id               UUID     // random generated UUID
+	isDeleted        bool     // has current user been deleted from server?
 	username         String   // player username
 	x, y, z          Double   // current coordinates of player
-	yawAbs, pitchAbs Float    // absolute values in degrees
-	yaw, pitch       Angle    // angle in 1/256
+	yawAbs, pitchAbs Float    // absolute values of player visual in degrees
+	yaw, pitch       Angle    // player visual expressed as an Angle (1/256)
 	onGround         Boolean  // is the player on ground?
 }
 
-// Get next packet sent by current client
+// getNextPacket gets next packet sent by current client.
 func (p *Player) getNextPacket() (*Packet, error) {
 	packet := new(Packet)
 	err := packet.Unpack(p.connection)
 	return packet, err
 }
 
+// readHandshake parses an handshake packet and check if its fields are valid.
 func (p *Player) readHandshake(packet *Packet) (state *VarInt, err error) {
 	// Protocol version
 	version := new(VarInt)
@@ -91,14 +92,16 @@ func (p *Player) readHandshake(packet *Packet) (state *VarInt, err error) {
 	return
 }
 
-func (p *Player) getIntFromUUID() Int {
+// int32FromUUID converts player UUID to an int32.
+func (p *Player) int32FromUUID() int32 {
 	// 4 MSBs
-	return Int(int32(p.id[0])<<24 | int32(p.id[1])<<16 | int32(p.id[2])<<8 | int32(p.id[3]))
+	return int32(p.id[0])<<24 | int32(p.id[1])<<16 | int32(p.id[2])<<8 | int32(p.id[3])
 }
 
+// writeJoinGame sends world's settings to client.
 func (p *Player) writeJoinGame() error {
 	return NewPacket(joinGamePacketID,
-		p.getIntFromUUID(),                 // Entity ID
+		Int(p.int32FromUUID()),             // Entity ID
 		Boolean(false),                     // Is hardcore
 		UnsignedByte(0),                    // 0 = Survival mode
 		Byte(-1),                           // previous gameplay
@@ -117,6 +120,7 @@ func (p *Player) writeJoinGame() error {
 	).Pack(p.connection)
 }
 
+// writePlayerPosition sends specified coordinates to this player.
 func (p *Player) writePlayerPosition(x, y, z Double, yawAbs, pitchAbs Float, flags Byte, teleportID VarInt) error {
 	return NewPacket(playerPositionPacketID,
 		x, y, z, // player coordinates
@@ -125,17 +129,19 @@ func (p *Player) writePlayerPosition(x, y, z Double, yawAbs, pitchAbs Float, fla
 	).Pack(p.connection)
 }
 
+// writeServerDifficulty sends current server difficulty to client.
 func (p *Player) writeServerDifficulty() error {
 	// Mode: peaceful, locked
 	return NewPacket(serverDifficultyPacketID, UnsignedByte(0), Boolean(true)).Pack(p.connection)
 }
 
+// writeChunk sends a world chunk to the client.
 func (p *Player) writeChunk(x, y Int) error {
-	chunk := NewPacket(writeChunkPacketID,
-		x, y,
-		Boolean(true), // full chunk
-		VarInt(0x01),  // bit mask, blocks included in this data packet
-		bytes.NewBuffer(heightMapNBT),
+	return NewPacket(writeChunkPacketID,
+		x, y, // coordinates of chunk
+		Boolean(true),                                    // full chunk
+		VarInt(0x01),                                     // bit mask, blocks included in this data packet
+		bytes.NewBuffer(heightMapNBT),                    // height map, highest blocks
 		VarInt(1024),                                     // biome array length
 		bytes.NewBuffer(bytes.Repeat([]byte{127}, 1024)), // void biome
 		VarInt(4487),                                     // length of data
@@ -145,70 +151,67 @@ func (p *Player) writeChunk(x, y Int) error {
 		VarInt(256),              // palette length
 		bytes.NewBuffer(palette), // write palette
 		VarInt(512),              // chunk length (512 long, 4096 bytes)
-		bytes.NewBuffer(chunk),
+		bytes.NewBuffer(chunk),   // chunk bytes
 		// data end
 		VarInt(0), // number of block entities (zero)
-	)
-	return chunk.Pack(p.connection)
+	).Pack(p.connection)
 }
 
-func convertCoordinatesToChunk(coord Double) VarInt {
-	coord /= 16
-	if coord < 0 {
-		coord -= 1
-	}
-	return VarInt(coord)
-}
-
+// updateViewPosition sends to the player the chunk it is currently in.
 func (p *Player) updateViewPosition() error {
-	// convert player coordinates to current chunk coordinates
-	x := convertCoordinatesToChunk(p.x)
-	z := convertCoordinatesToChunk(p.z)
-	return NewPacket(updateViewPacketID, x, z).Pack(p.connection)
+	return NewPacket(updateViewPacketID,
+		coordinateToChunk(p.x),
+		coordinateToChunk(p.z),
+	).Pack(p.connection)
 }
 
-func (p *Player) writeChat(msg, username string) error {
-	chat := NewPacket(writeChatPacketID,
+// writeChatMessage sends a message to current player chat.
+func (p *Player) writeChatMessage(msg, username string) error {
+	return NewPacket(writeChatPacketID,
 		String("{\"text\": \"<"+username+"> "+msg+"\",\"bold\": \"false\"}"),
 		Byte(0),
 		p.id,
-	)
-	return chat.Pack(p.connection)
+	).Pack(p.connection)
 }
 
+// writeSpawnPlayer sends a spawn player packet to this client.
 func (p *Player) writeSpawnPlayer(id VarInt, playerUUID UUID, x, y, z Double, yaw, pitch Angle) error {
 	return NewPacket(spawnPlayerPacketID, id, playerUUID, x, y, z, yaw, pitch).Pack(p.connection)
 }
 
+// writeEntityTeleport changes position of a player and sends the packet to this client.
 func (p *Player) writeEntityTeleport(x, y, z Double, yaw, pitch Angle, onGround Boolean, id VarInt) error {
 	return NewPacket(writeEntityTeleportPacketID, id, x, y, z, yaw, pitch, onGround).Pack(p.connection)
 }
 
+// writeEntityLook changes visual of a player and sends the packet to this client.
 func (p *Player) writeEntityLook(id VarInt, yaw Angle) error {
 	return NewPacket(writeEntityLookPacketID, id, yaw).Pack(p.connection)
 }
 
+// writeEntityRotation rotates a player and sends the packet to this client.
 func (p *Player) writeEntityRotation(id VarInt, yaw, pitch Angle, onGround Boolean) error {
 	return NewPacket(writeEntityRotationPacketID, id, yaw, pitch, onGround).Pack(p.connection)
 }
 
+// writeEntityAction sends an action done by a player, specified by id, to this client.
 func (p *Player) writeEntityAction(id VarInt, action VarInt) error {
 	packet := NewPacket(writeEntityMetadataPacketID, id)
 
 	switch action {
-	case 0: // start sneaking
+	case 0: // Start sneaking
 		_, _ = UnsignedByte(6).WriteTo(packet) // field unique id
 		_, _ = VarInt(18).WriteTo(packet)      // pose
 		_, _ = VarInt(5).WriteTo(packet)       // sneak
-	case 1: // stop sneaking
+	case 1: // Stop sneaking
 		_, _ = UnsignedByte(6).WriteTo(packet) // field unique id
 		_, _ = VarInt(18).WriteTo(packet)      // pose
 		_, _ = VarInt(0).WriteTo(packet)       // stand up
-	case 3: // start sprinting
+	case 3: // Start sprinting
 		_, _ = UnsignedByte(0).WriteTo(packet) // field unique id
 		_, _ = VarInt(0).WriteTo(packet)       // byte
 		_, _ = VarInt(0x08).WriteTo(packet)    // sprinting
-	case 4: // stop sprinting
+	case 4: // Stop sprinting
 		_, _ = UnsignedByte(0).WriteTo(packet) // field unique id
 		_, _ = VarInt(0).WriteTo(packet)       // byte
 		_, _ = VarInt(0).WriteTo(packet)       // no action
@@ -217,18 +220,20 @@ func (p *Player) writeEntityAction(id VarInt, action VarInt) error {
 		return nil
 	}
 
-	_, _ = UnsignedByte(0xFF).WriteTo(packet) // terminate entity metadata array
+	_, _ = UnsignedByte(0xFF).WriteTo(packet) // Terminate entity metadata array
 	return packet.Pack(p.connection)
 }
 
+// writeEntityAnimation sends an action that produce an animation, done by a player,
+// specified by id, to this client.
 func (p *Player) writeEntityAnimation(id VarInt, animation VarInt) error {
 	packet := NewPacket(writeEntityAnimationID, id)
 
 	switch animation {
 	case 0:
-		_, _ = Byte(0).WriteTo(packet) // main hand
+		_, _ = Byte(0).WriteTo(packet) // Main hand
 	case 1:
-		_, _ = Byte(3).WriteTo(packet) // off hand
+		_, _ = Byte(3).WriteTo(packet) // Off hand
 	}
 	return packet.Pack(p.connection)
 }
