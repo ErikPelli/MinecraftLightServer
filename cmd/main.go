@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	server := MinecraftLightServer.NewServer("")
+	server := MinecraftLightServer.NewServer()
 	if err := server.Start(); err != nil {
 		panic(err)
 	}

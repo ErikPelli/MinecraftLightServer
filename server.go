@@ -24,18 +24,19 @@ type Server struct {
 }
 
 // NewServer creates a new Server using default port.
-// Leave portNumber empty to use default port (25565).
-func NewServer(portNumber string) *Server {
+// portNumber is an optional argument and you have to leave
+// it empty to use default port (25565).
+func NewServer(portNumber ...string) *Server {
 	s := new(Server)
 
-	if portNumber == "" {
-		portNumber = serverPort
+	if len(portNumber) == 0 {
+		s.listener.port = serverPort
+	} else {
+		s.listener.port = portNumber[0]
 	}
 
-	s.listener.port = portNumber
 	s.listener.portValue = make(chan string)
 	s.listener.err = make(chan error)
-
 	return s
 }
 
@@ -57,7 +58,7 @@ func (s *Server) SetPort(portNumber string) error {
 func (s *Server) Close() error {
 	close(s.listener.portValue)
 	s.players.Range(func(key interface{}, value interface{}) bool {
-		s.removePlayer(value.(*Player), errors.New("server closed"))
+		s.removePlayerAndExit(value.(*Player), errors.New("server closed"))
 		return true
 	})
 	return nil
@@ -73,7 +74,13 @@ func (s *Server) keepAliveUser(p *Player) {
 
 		// if there is a connection error remove client from players map
 		if err := keepAlive.Pack(p.connection); err != nil {
-			s.removePlayer(p, err)
+			// Exit from this keepalive goroutine
+			// if user has been deleted
+			if p.isDeleted {
+				runtime.Goexit()
+			} else {
+				s.removePlayerAndExit(p, err)
+			}
 		}
 
 		// send keep alive every 18 seconds (the maximum limit is 20 seconds)
@@ -84,10 +91,10 @@ func (s *Server) keepAliveUser(p *Player) {
 // addPlayer add a player and removes players
 // actually connected with same username.
 func (s *Server) addPlayer(p *Player) {
-	precedent, ok := s.players.LoadAndDelete(p.username)
+	precedent, ok := s.players.Load(p.username)
 	if ok {
-		// Close the connection if not already done
-		_ = precedent.(*Player).connection.Close()
+		// Remove old player
+		s.removePlayer(precedent.(*Player), errors.New("new player with same username"))
 	} else {
 		// Increment players counter if the player is new
 		s.counterMut.Lock()
@@ -100,7 +107,7 @@ func (s *Server) addPlayer(p *Player) {
 // removePlayer removes a player from current Server.
 // must be invoked by the player's handler goroutine.
 func (s *Server) removePlayer(p *Player, err error) {
-	// Close the connection if not already done
+	p.isDeleted = true
 	_ = p.connection.Close()
 
 	// Remove player from players map
@@ -112,12 +119,34 @@ func (s *Server) removePlayer(p *Player, err error) {
 		s.counterMut.Lock()
 		s.counter--
 		s.counterMut.Unlock()
-	}
 
-	// Exit current player goroutine
+		// Remove player from other clients
+		s.players.Range(func(key interface{}, value interface{}) bool {
+			_ = NewPacket(broadcastPlayerInfoPacketID,
+				VarInt(4), // remove player
+				VarInt(1), // number of players
+				p.id,      // uuid
+			).Pack(value.(*Player).connection)
+
+			_ = NewPacket(destroyEntityPacketID,
+				VarInt(1),                  // number of players
+				VarInt(p.getIntFromUUID()), // uuid
+			).Pack(value.(*Player).connection)
+
+			return true
+		})
+	}
+}
+
+// removePlayerAndExit removes a player from current Server
+// and stops current goroutine.
+func (s *Server) removePlayerAndExit(p *Player, err error) {
+	s.removePlayer(p, err)
 	runtime.Goexit()
 }
 
+// broadcastPlayerInfo sends to all players the current players connected,
+// to use when a new user needs to be added.
 func (s *Server) broadcastPlayerInfo() {
 	s.players.Range(func(key interface{}, currentPlayer interface{}) bool {
 		// Send packet to current host
@@ -143,11 +172,13 @@ func (s *Server) broadcastPlayerInfo() {
 	})
 }
 
+// broadcastChatMessage sends a chat message to all connected players.
+// msg is the message string and username is the sender.
 func (s *Server) broadcastChatMessage(msg, username string) {
 	s.players.Range(func(key interface{}, value interface{}) bool {
 		player := value.(*Player)
 		if err := player.writeChat(msg, username); err != nil {
-			s.removePlayer(player, err)
+			s.removePlayerAndExit(player, err)
 		}
 		return true
 	})

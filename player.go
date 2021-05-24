@@ -25,7 +25,8 @@ const (
 	joinGamePacketID            = 0x24
 	writeEntityRotationPacketID = 0x29
 	broadcastPlayerInfoPacketID = 0x32
-	PlayerPositionPacketID      = 0x34
+	playerPositionPacketID      = 0x34
+	destroyEntityPacketID       = 0x36
 	writeEntityLookPacketID     = 0x3A
 	updateViewPacketID          = 0x40
 	writeEntityMetadataPacketID = 0x44
@@ -48,6 +49,7 @@ const (
 type Player struct {
 	connection       net.Conn // tcp connection
 	id               UUID     // generated UUID
+	isDeleted		 bool     // true when current user has been deleted
 	username         String   // player username
 	x, y, z          Double   // current coordinates of player
 	yawAbs, pitchAbs Float    // absolute values in degrees
@@ -116,7 +118,7 @@ func (p *Player) writeJoinGame() error {
 }
 
 func (p *Player) writePlayerPosition(x, y, z Double, yawAbs, pitchAbs Float, flags Byte, teleportID VarInt) error {
-	return NewPacket(PlayerPositionPacketID,
+	return NewPacket(playerPositionPacketID,
 		x, y, z, // player coordinates
 		yawAbs, pitchAbs, // player visual
 		flags, teleportID, // parameters for client
