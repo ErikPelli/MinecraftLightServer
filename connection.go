@@ -9,7 +9,7 @@ import (
 
 // listen starts listening for minecraft clients and
 // use portNumber channel to change listening port.
-func (s *Server) listen(portNumber chan string, errChannel chan error) {
+func (s *Server) listen(portNumber <-chan string, errChannel chan<- error) {
 	var listener net.Listener
 	isListening := true
 

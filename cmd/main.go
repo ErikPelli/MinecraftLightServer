@@ -11,6 +11,6 @@ func main() {
 		panic(err)
 	}
 
-	// Terminate goroutine so all the others continue executing
+	// Terminate main goroutine so all the others continue executing
 	runtime.Goexit()
 }
