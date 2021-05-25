@@ -56,7 +56,10 @@ func (s *Server) SetPort(portNumber string) error {
 
 // Close stops the server and close its components.
 func (s *Server) Close() error {
+	// Close port changer channel
 	close(s.listener.portValue)
+
+	// Remove each of the connected clients
 	s.players.Range(func(key interface{}, value interface{}) bool {
 		s.removePlayerAndExit(value.(*Player), errors.New("server closed"))
 		return true
@@ -123,16 +126,18 @@ func (s *Server) removePlayer(p *Player, err error) {
 
 		// Remove player from other clients
 		s.players.Range(func(key interface{}, value interface{}) bool {
+			currentPlayer := value.(*Player)
+
 			_ = NewPacket(broadcastPlayerInfoPacketID,
 				VarInt(4), // remove player
 				VarInt(1), // number of players
 				p.id,      // uuid
-			).Pack(value.(*Player).connection)
+			).Pack(currentPlayer.connection)
 
 			_ = NewPacket(destroyEntityPacketID,
 				VarInt(1),                 // number of players
 				VarInt(p.int32FromUUID()), // uuid
-			).Pack(value.(*Player).connection)
+			).Pack(currentPlayer.connection)
 
 			return true
 		})
@@ -158,8 +163,10 @@ func (s *Server) broadcastPlayerInfo() {
 
 		// Add every player to packet
 		s.players.Range(func(key interface{}, value interface{}) bool {
-			_, _ = value.(*Player).id.WriteTo(broadcast)       // player uuid
-			_, _ = value.(*Player).username.WriteTo(broadcast) // username
+			currentPlayer := value.(*Player)
+
+			_, _ = currentPlayer.id.WriteTo(broadcast)       // player uuid
+			_, _ = currentPlayer.username.WriteTo(broadcast) // username
 			_, _ = VarInt(0).WriteTo(broadcast)                // no properties
 			_, _ = VarInt(0).WriteTo(broadcast)                // gamemode 0 (survival)
 			_, _ = VarInt(123).WriteTo(broadcast)              // hardcoded ping

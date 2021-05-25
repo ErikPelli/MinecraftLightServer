@@ -26,7 +26,7 @@ func (s *Server) listen(portNumber <-chan string, errChannel chan<- error) {
 			errChannel <- err
 		}
 
-		// Stop listening when port channel has been closed
+		// Stop listening when port changer channel has been closed
 		close(errChannel)
 		isListening = false
 	}()
@@ -35,10 +35,8 @@ func (s *Server) listen(portNumber <-chan string, errChannel chan<- error) {
 	for isListening {
 		// Check if listener has been initialized
 		if listener != nil {
-			conn, err := listener.Accept()
-
-			// Handle request if there aren't errors
-			if err == nil {
+			if conn, err := listener.Accept(); err == nil {
+				// Handle request if there aren't errors
 				go s.newPlayer(conn)
 			}
 		}
@@ -129,7 +127,6 @@ func (s *Server) newPlayer(conn net.Conn) {
 			).Pack(current.connection); err != nil {
 				s.removePlayerAndExit(&current, err)
 			}
-
 			s.addPlayer(&current)
 		} else {
 			s.removePlayerAndExit(&current, errors.New("invalid login packet id"))

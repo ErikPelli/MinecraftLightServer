@@ -17,19 +17,21 @@ type Packet struct {
 
 // Pack prepares a packet and write it to w writer interface.
 func (pk *Packet) Pack(w io.Writer) error {
-	var packet bytes.Buffer
-	id := VarInt(pk.ID)
-
-	// Write total length
-	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(&packet); err != nil {
+	// Get bytes from packet id
+	var id bytes.Buffer
+	if _, err := VarInt(pk.ID).WriteTo(&id); err != nil {
 		return err
 	}
 
+	var packet bytes.Buffer
+	// Write length
+	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(&packet); err != nil {
+		return err
+	}
 	// Write packet id
 	if _, err := id.WriteTo(&packet); err != nil {
 		return err
 	}
-
 	// Write data
 	if _, err := pk.data.WriteTo(&packet); err != nil {
 		return err
@@ -53,14 +55,14 @@ func (pk *Packet) Unpack(r io.Reader) error {
 		return errors.New("packet length too small")
 	}
 
-	// Save data
+	// Read data
 	buf := make([]byte, length)
 	if _, err := r.Read(buf); err != nil {
 		return errors.New("unable to read packet content: " + err.Error())
 	}
 	pk.data = *bytes.NewBuffer(buf)
 
-	// Get packet id
+	// Read Packet ID
 	var packetID VarInt
 	if _, err := packetID.ReadFrom(&pk.data); err != nil {
 		return errors.New("unable to read packet id: " + err.Error())
@@ -85,6 +87,7 @@ func NewPacket(packetID int32, data ...io.WriterTo) *Packet {
 	packet := new(Packet)
 	packet.ID = packetID
 
+	// Add each element of data slice
 	for _, currType := range data {
 		_, _ = currType.WriteTo(packet)
 	}

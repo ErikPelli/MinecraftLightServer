@@ -7,7 +7,7 @@ import (
 	"math"
 )
 
-// Minecraft packet fields types
+// Minecraft packet field types
 type (
 	// Boolean type (true = 0x01, false = 0x00).
 	Boolean bool
@@ -261,21 +261,6 @@ func (v *VarInt) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
-// Len returns length of encoded VarInt.
-func (v VarInt) Len() int {
-	num := uint32(v)
-	length := 0
-	for {
-		num >>= 7
-		length++
-
-		if num == 0 {
-			break
-		}
-	}
-	return length
-}
-
 // WriteTo encodes a VarLong.
 func (v VarLong) WriteTo(w io.Writer) (n int64, err error) {
 	var vi = make([]byte, 0, 10)
@@ -322,16 +307,6 @@ func (a Angle) WriteTo(w io.Writer) (int64, error) {
 // ReadFrom decodes an Angle.
 func (a *Angle) ReadFrom(r io.Reader) (int64, error) {
 	return (*Byte)(a).ReadFrom(r)
-}
-
-// ToDeg converts Angle to Degrees.
-func (a Angle) ToDeg() float64 {
-	return 360 * float64(a) / 256
-}
-
-// ToRad converts Angle to Radians.
-func (a Angle) ToRad() float64 {
-	return 2 * math.Pi * float64(a) / 256
 }
 
 // WriteTo encodes a Float.
