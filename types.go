@@ -261,6 +261,21 @@ func (v *VarInt) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
+// Len returns length of encoded VarInt.
+func (v VarInt) Len() int {
+	num := uint32(v)
+	length := 0
+	for {
+		num >>= 7
+		length++
+
+		if num == 0 {
+			break
+		}
+	}
+	return length
+}
+
 // WriteTo encodes a VarLong.
 func (v VarLong) WriteTo(w io.Writer) (n int64, err error) {
 	var vi = make([]byte, 0, 10)

@@ -173,128 +173,132 @@ func (s *Server) newPlayer(conn net.Conn) {
 // handlePacket handles each packet sent by current client.
 func (s *Server) handlePacket(p *Player) {
 	for !p.isDeleted {
+		// Read packet
 		packet, err := p.getNextPacket()
 		if err != nil {
 			s.removePlayerAndExit(p, err)
 		}
 
-		switch packet.ID {
-		case readTeleportConfirmPacketID:
-			// Do nothing
+		// Handle packet in another goroutine
+		go func() {
+			switch packet.ID {
+			case readTeleportConfirmPacketID:
+				// Do nothing
 
-		case readChatPacketID:
-			var message String
-			if _, err := message.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			s.broadcastChatMessage(string(message), string(p.username))
-
-		case readKeepAlivePacketID:
-			// Do nothing
-
-		case readPositionPacketID:
-			// Old position
-			oldX := p.x
-			oldZ := p.z
-
-			if _, err := p.x.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.y.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.z.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-
-			// Update player chunk view if chunk has changed
-			if p.z != oldZ || coordinateToChunk(p.x) != coordinateToChunk(oldX) {
-				if err := p.updateViewPosition(); err != nil {
+			case readChatPacketID:
+				var message String
+				if _, err := message.ReadFrom(packet); err != nil {
 					s.removePlayerAndExit(p, err)
 				}
-			}
+				s.broadcastChatMessage(string(message), string(p.username))
 
-			// Send to other players
-			s.broadcastPlayerPosAndLook(VarInt(p.int32FromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
+			case readKeepAlivePacketID:
+				// Do nothing
 
-		case readPositionAndLookPacketID:
-			// Old position
-			oldX := p.x
-			oldZ := p.z
+			case readPositionPacketID:
+				// Old position
+				oldX := p.x
+				oldZ := p.z
 
-			if _, err := p.x.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.y.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.z.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.yawAbs.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-
-			// Calculate yaw and pitch
-			p.yaw = p.yawAbs.toAngle()
-			p.pitch = p.pitchAbs.toAngle()
-
-			// Update player chunk view if chunk has changed
-			if p.z != oldZ || coordinateToChunk(p.x) != coordinateToChunk(oldX) {
-				if err := p.updateViewPosition(); err != nil {
+				if _, err := p.x.ReadFrom(packet); err != nil {
 					s.removePlayerAndExit(p, err)
 				}
+				if _, err := p.y.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.z.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.onGround.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+
+				// Update player chunk view if chunk has changed
+				if p.z != oldZ || coordinateToChunk(p.x) != coordinateToChunk(oldX) {
+					if err := p.updateViewPosition(); err != nil {
+						s.removePlayerAndExit(p, err)
+					}
+				}
+
+				// Send to other players
+				s.broadcastPlayerPosAndLook(VarInt(p.int32FromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
+
+			case readPositionAndLookPacketID:
+				// Old position
+				oldX := p.x
+				oldZ := p.z
+
+				if _, err := p.x.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.y.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.z.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.yawAbs.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.onGround.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+
+				// Calculate yaw and pitch
+				p.yaw = p.yawAbs.toAngle()
+				p.pitch = p.pitchAbs.toAngle()
+
+				// Update player chunk view if chunk has changed
+				if p.z != oldZ || coordinateToChunk(p.x) != coordinateToChunk(oldX) {
+					if err := p.updateViewPosition(); err != nil {
+						s.removePlayerAndExit(p, err)
+					}
+				}
+
+				// Send to other players
+				s.broadcastPlayerPosAndLook(VarInt(p.int32FromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
+
+			case readRotationPacketID:
+				if _, err := p.yawAbs.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				if _, err := p.onGround.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+
+				// Calculate yaw and pitch
+				p.yaw = p.yawAbs.toAngle()
+				p.pitch = p.pitchAbs.toAngle()
+
+				// Send to other players
+				s.broadcastPlayerRotation(VarInt(p.int32FromUUID()), p.yaw, p.pitch, p.onGround)
+
+			case readEntityActionPacketID:
+				// Discard Entity ID
+				_, _ = new(VarInt).ReadFrom(packet)
+
+				var actionID VarInt
+				if _, err := actionID.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				s.broadcastEntityAction(VarInt(p.int32FromUUID()), actionID)
+
+			case readAnimationPacketID:
+				var animationID VarInt
+				if _, err := animationID.ReadFrom(packet); err != nil {
+					s.removePlayerAndExit(p, err)
+				}
+				s.broadcastEntityAnimation(VarInt(p.int32FromUUID()), animationID)
+
+			default:
+				fmt.Printf("[%s] Unmanaged packet: 0x%02X\n", p.username, packet.ID)
 			}
-
-			// Send to other players
-			s.broadcastPlayerPosAndLook(VarInt(p.int32FromUUID()), p.x, p.y, p.z, p.yaw, p.pitch, p.onGround)
-
-		case readRotationPacketID:
-			if _, err := p.yawAbs.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.pitchAbs.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			if _, err := p.onGround.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-
-			// Calculate yaw and pitch
-			p.yaw = p.yawAbs.toAngle()
-			p.pitch = p.pitchAbs.toAngle()
-
-			// Send to other players
-			s.broadcastPlayerRotation(VarInt(p.int32FromUUID()), p.yaw, p.pitch, p.onGround)
-
-		case readEntityActionPacketID:
-			// Discard Entity ID
-			_, _ = new(VarInt).ReadFrom(packet)
-
-			var actionID VarInt
-			if _, err := actionID.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			s.broadcastEntityAction(VarInt(p.int32FromUUID()), actionID)
-
-		case readAnimationPacketID:
-			var animationID VarInt
-			if _, err := animationID.ReadFrom(packet); err != nil {
-				s.removePlayerAndExit(p, err)
-			}
-			s.broadcastEntityAnimation(VarInt(p.int32FromUUID()), animationID)
-
-		default:
-			fmt.Printf("[%s] Unmanaged packet: 0x%02X\n", p.username, packet.ID)
-		}
+		}()
 	}
 }

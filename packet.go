@@ -17,24 +17,26 @@ type Packet struct {
 
 // Pack prepares a packet and write it to w writer interface.
 func (pk *Packet) Pack(w io.Writer) error {
-	// Write packet id to buffer
-	var id bytes.Buffer
-	if _, err := VarInt(pk.ID).WriteTo(&id); err != nil {
-		return err
-	}
+	var packet bytes.Buffer
+	id := VarInt(pk.ID)
 
 	// Write total length
-	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(w); err != nil {
+	if _, err := VarInt(id.Len() + pk.data.Len()).WriteTo(&packet); err != nil {
 		return err
 	}
 
 	// Write packet id
-	if _, err := id.WriteTo(w); err != nil {
+	if _, err := id.WriteTo(&packet); err != nil {
 		return err
 	}
 
 	// Write data
-	if _, err := pk.data.WriteTo(w); err != nil {
+	if _, err := pk.data.WriteTo(&packet); err != nil {
+		return err
+	}
+
+	// Send result to w
+	if _, err := packet.WriteTo(w); err != nil {
 		return err
 	}
 

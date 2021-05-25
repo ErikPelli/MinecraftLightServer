@@ -23,6 +23,7 @@ Everything has been adapted and rewritten to make code easy to understand.
 ## Changelog
 - There can be only one username online at the same time
 - Concurrent handling of clients
+- Concurrent handling of client packets
 - Support for player running
 - Detection of a disconnected player is immediate
 
